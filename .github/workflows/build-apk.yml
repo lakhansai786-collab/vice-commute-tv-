@@ -1,0 +1,191 @@
+name: Build Signed TV & Mobile APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 1. Setup Java 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: 2. Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: 3. Create Full Android TV & Mobile Project Structure
+      run: |
+        mkdir -p app/src/main/java/com/vicecommute/syndicate
+        mkdir -p app/src/main/assets
+        mkdir -p app/src/main/res/drawable
+
+        # Root settings.gradle
+        cat << 'EOF' > settings.gradle
+        rootProject.name = "ViceCommute6"
+        include ':app'
+        EOF
+
+        # Root build.gradle
+        cat << 'EOF' > build.gradle
+        buildscript {
+            repositories {
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:8.1.0'
+            }
+        }
+        allprojects {
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        EOF
+
+        # App build.gradle (Configured to prevent Parsing Error on older & newer TV/Mobile)
+        cat << 'EOF' > app/build.gradle
+        apply plugin: 'com.android.application'
+
+        android {
+            namespace "com.vicecommute.syndicate"
+            compileSdkVersion 34
+
+            defaultConfig {
+                applicationId "com.vicecommute.syndicate"
+                minSdkVersion 21
+                targetSdkVersion 34
+                versionCode 1
+                versionName "1.0"
+            }
+
+            signingConfigs {
+                release {
+                    storeFile file("release-key.jks")
+                    storePassword "password123"
+                    keyAlias "vicekey"
+                    keyPassword "password123"
+                    v1SigningEnabled true
+                    v2SigningEnabled true
+                }
+            }
+
+            buildTypes {
+                release {
+                     minifyEnabled false
+                     signingConfig signingConfigs.release
+                }
+            }
+        }
+        EOF
+
+        # Generate Keystore so APK is 100% Signed (No Parsing or Corrupt Error)
+        keytool -genkey -v -keystore app/release-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias vicekey -storepass password123 -keypass password123 -dname "CN=ViceCommute, OU=Game, O=Syndicate, L=Jaipur, S=RJ, C=IN"
+
+        # Create AndroidManifest.xml (TV + Mobile Ready)
+        cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+            <uses-feature android:name="android.software.leanback" android:required="false" />
+            <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+
+            <application
+                android:allowBackup="true"
+                android:label="Vice Commute 6"
+                android:hardwareAccelerated="true"
+                android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+
+                <activity
+                    android:name=".MainActivity"
+                    android:configChanges="orientation|keyboardHidden|screenSize|keyboard|navigation"
+                    android:screenOrientation="sensorLandscape"
+                    android:exported="true">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.action.LAUNCHER" />
+                        <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+
+        # Create MainActivity.java with TV Remote D-Pad & Back Button Bridge
+        cat << 'EOF' > app/src/main/java/com/vicecommute/syndicate/MainActivity.java
+        package com.vicecommute.syndicate;
+
+        import android.app.Activity;
+        import android.os.Bundle;
+        import android.view.KeyEvent;
+        import android.view.WindowManager;
+        import android.webkit.WebSettings;
+        import android.webkit.WebView;
+        import android.webkit.WebViewClient;
+
+        public class MainActivity extends Activity {
+            private WebView webView;
+
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+                webView = new WebView(this);
+                WebSettings settings = webView.getSettings();
+                settings.setJavaScriptEnabled(true);
+                settings.setDomStorageEnabled(true);
+                settings.setMediaPlaybackRequiresUserGesture(false);
+
+                webView.setWebViewClient(new WebViewClient());
+                webView.setFocusable(true);
+                webView.setFocusableInTouchMode(true);
+                webView.requestFocus();
+
+                webView.loadUrl("file:///android_asset/index.html");
+                setContentView(webView);
+            }
+
+            @Override
+            public boolean dispatchKeyEvent(KeyEvent event) {
+                int code = event.getKeyCode();
+                if (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_BUTTON_A) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        webView.evaluateJavascript("window.dispatchEvent(new KeyboardEvent('keydown', {'key': 'Enter'}));", null);
+                    }
+                    return true;
+                }
+                return super.dispatchKeyEvent(event);
+            }
+
+            @Override
+            public void onBackPressed() {
+                webView.evaluateJavascript("window.dispatchEvent(new KeyboardEvent('keydown', {'key': 'Backspace'}));", null);
+            }
+        }
+        EOF
+
+    - name: 4. Check or Create index.html
+      run: |
+        if [ -f "index.html" ]; then
+          cp index.html app/src/main/assets/index.html
+        else
+          echo "<h1>Put your index.html in the root repository folder!</h1>" > app/src/main/assets/index.html
+        fi
+
+    - name: 5. Build Signed Release APK
+      run: |
+        gradle assembleRelease --no-daemon
+
+    - name: 6. Generate Download Button Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Vice-Commute-6-Signed-APK
+        path: app/build/outputs/apk/release/app-release.apk
