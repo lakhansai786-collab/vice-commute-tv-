@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Vice Commute 6</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; font-family: sans-serif; }
+  body, html { width: 100vw; height: 100vh; overflow: hidden; background: #0a0a14; color: #fff; }
+  canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+
+  /* Screens */
+  .screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: none; flex-direction: column; justify-content: center; align-items: center; background: rgba(10, 8, 22, 0.88); z-index: 20; padding: 15px; }
+  .screen.active { display: flex; }
+
+  .game-title { font-size: clamp(26px, 5vw, 54px); font-weight: 900; color: #ff2a85; text-shadow: 0 0 15px #ff2a85, 2px 2px 0px #00f0ff; margin-bottom: 4px; text-align: center; }
+  .sub-title { color: #00f0ff; font-size: clamp(11px, 2vw, 16px); margin-bottom: 18px; letter-spacing: 2px; text-align: center; }
+
+  .menu-grid { display: flex; flex-direction: column; gap: 10px; width: min(360px, 92vw); z-index: 25; }
+  .btn { background: #1a1c35; border: 2px solid #00f0ff; color: #fff; padding: 12px 18px; font-size: 16px; font-weight: bold; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; pointer-events: auto; }
+  .btn.focused, .btn:active { background: linear-gradient(90deg, #ff2a85, #ff7b00); border-color: #fff; transform: scale(1.03); box-shadow: 0 0 15px #ff2a85; }
+
+  .card-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; width: min(850px, 95vw); max-height: 58vh; overflow-y: auto; padding: 8px; z-index: 25; }
+  .card { background: #161930; border: 2px solid #3a4066; border-radius: 10px; padding: 12px; cursor: pointer; pointer-events: auto; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; }
+  .card.focused, .card:active { border-color: #00f0ff; background: #23284d; box-shadow: 0 0 12px #00f0ff; }
+  .card h3 { color: #ff9000; font-size: 16px; }
+  .card p { font-size: 12px; color: #ccc; }
+  .price-tag { color: #00ff88; font-weight: bold; font-size: 14px; }
+
+  /* HUD */
+  #hud { position: fixed; top: 10px; left: 10px; right: 10px; display: none; justify-content: space-between; z-index: 10; pointer-events: none; }
+  .hud-box { background: rgba(10, 10, 25, 0.85); border-left: 4px solid #ff2a85; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; }
+  .hud-right { border-left: none; border-right: 4px solid #00f0ff; text-align: right; pointer-events: auto; }
+
+  /* Touch Controls (Always Visible in Gameplay for Easy Testing) */
+  #touch-controls { position: fixed; bottom: 15px; left: 15px; right: 15px; display: none; justify-content: space-between; align-items: flex-end; z-index: 15; pointer-events: none; }
+  .dpad-cluster { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 5px; pointer-events: auto; }
+  .t-btn { background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5); border-radius: 10px; color: #fff; font-size: 18px; font-weight: bold; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+  .t-btn:active { background: #ff2a85; }
+  .action-cluster { display: flex; gap: 10px; pointer-events: auto; }
+  .act-btn { width: 64px; height: 64px; border-radius: 50%; border: 2px solid #fff; font-weight: bold; font-size: 12px; color: #fff; display: flex; justify-content: center; align-items: center; text-align: center; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.6); }
+  .act-btn:active { transform: scale(0.92); }
+  .btn-fire { background: #ff1e50; }
+  .btn-car { background: #0099ff; }
+  .btn-rewind { background: #ff9000; }
+
+  .top-stats { position: absolute; top: 12px; right: 20px; font-size: 18px; font-weight: 900; color: #00ff88; }
+  .tv-hint { margin-top: 14px; color: #aaa; font-size: 12px; text-align: center; }
+
+  /* Custom In-Game Modal Popup (Replaces broken alert()) */
+  #modal-popup { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 100; }
+  .modal-box { background: #1a1c35; border: 3px solid #00f0ff; border-radius: 14px; padding: 25px; width: min(350px, 90vw); text-align: center; }
+  .modal-box h2 { color: #ff9000; margin-bottom: 10px; }
+  .modal-box p { color: #fff; margin-bottom: 20px; font-size: 15px; }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<!-- Gameplay HUD -->
+<div id="hud">
+  <div class="hud-box">
+    <div id="hud-mission">मिशन 1</div>
+    <div id="hud-hp" style="color:#00ff88; margin-top:3px;">HP: 100%</div>
+    <div id="hud-wanted" style="color:#ffcc00; margin-top:2px;">पुलिस: ☆☆☆☆☆</div>
+  </div>
+  <div class="hud-box hud-right">
+    <div id="hud-cash" style="color:#00ff88; font-size:16px;">₹ 1000</div>
+    <div id="hud-weapon" style="color:#00f0ff; margin-top:3px;">गन: पिस्तौल</div>
+    <div id="hud-timer" style="color:#ff9000; margin-top:2px;">समय: 60s</div>
+    <div onclick="openScreen('home-screen'); gameState.inGame=false;" style="margin-top:6px; background:#ff2a85; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px;">⏸ मेनू (Back)</div>
+  </div>
+</div>
+
+<!-- Touch Controls (Mobile & Testing) -->
+<div id="touch-controls">
+  <div class="dpad-cluster">
+    <div></div>
+    <div class="t-btn" id="btn-up">▲</div>
+    <div></div>
+    <div class="t-btn" id="btn-left">◀</div>
+    <div class="t-btn" onclick="firePlayerWeapon()">🔥</div>
+    <div class="t-btn" id="btn-right">▶</div>
+    <div></div>
+    <div class="t-btn" id="btn-down">▼</div>
+    <div></div>
+  </div>
+  <div class="action-cluster">
+    <div class="act-btn btn-rewind" onclick="triggerTimeRewind()">टाइम<br>रिवाइंड</div>
+    <div class="act-btn btn-car" onclick="toggleVehicle()">गाड़ी<br>चढ़ें/उतरें</div>
+    <div class="act-btn btn-fire" onclick="firePlayerWeapon()">फायर<br>(OK)</div>
+  </div>
+</div>
+
+<!-- 1. HOME SCREEN -->
+<div id="home-screen" class="screen active">
+  <div class="top-stats" id="menu-cash">₹ 1000</div>
+  <div class="game-title">VICE COMMUTE 6</div>
+  <div class="sub-title">TV D-Pad & Mobile Syndicate Edition</div>
+
+  <div class="menu-grid">
+    <div class="btn focused" onclick="startMission(GameData.currentMission)"><span>▶ मिशन खेलें (Play Now)</span> <span id="cur-mission-badge">M-1</span></div>
+    <div class="btn" onclick="openMissionsMenu()"><span>📋 50 मिशन लिस्ट (Missions)</span> <span>50</span></div>
+    <div class="btn" onclick="openShopMenu()"><span>🛒 गन और आर्मरी शॉप (Shop)</span> <span>Armory</span></div>
+    <div class="btn" onclick="openSkinsMenu()"><span>👕 कस्टम स्किन शॉप (Skins)</span> <span>Skins</span></div>
+    <div class="btn" onclick="addFreeBonusCash()"><span>💰 फ्री बोनस कैश (+₹500)</span> <span>Free</span></div>
+  </div>
+  <div class="tv-hint">TV रिमोट: D-Pad से चुनें और OK दबाएं | मोबाइल: सीधे बटन पर टच करें</div>
+</div>
+
+<!-- 2. MISSIONS SCREEN -->
+<div id="mission-screen" class="screen">
+  <div class="game-title" style="font-size:26px;">50 क्राइम और कम्यूट मिशन्स</div>
+  <div class="card-container" id="mission-list"></div>
+  <div class="menu-grid" style="margin-top:12px;">
+    <div class="btn" onclick="openScreen('home-screen')">⬅ होम स्क्रीन पर वापस जाएं</div>
+  </div>
+</div>
+
+<!-- 3. SHOP SCREEN -->
+<div id="shop-screen" class="screen">
+  <div class="top-stats" id="shop-cash">₹ 1000</div>
+  <div class="game-title" style="font-size:26px;">वाइस आर्मरी शॉप</div>
+  <div class="card-container" id="shop-list"></div>
+  <div class="menu-grid" style="margin-top:12px;">
+    <div class="btn" onclick="openScreen('home-screen')">⬅ होम स्क्रीन पर वापस जाएं</div>
+  </div>
+</div>
+
+<!-- 4. SKINS SCREEN -->
+<div id="skin-screen" class="screen">
+  <div class="top-stats" id="skin-cash">₹ 1000</div>
+  <div class="game-title" style="font-size:26px;">कस्टम हीरो स्किन्स</div>
+  <div class="card-container" id="skin-list"></div>
+  <div class="menu-grid" style="margin-top:12px;">
+    <div class="btn" onclick="openScreen('home-screen')">⬅ होम स्क्रीन पर वापस जाएं</div>
+  </div>
+</div>
+
+<!-- Custom Popup Modal -->
+<div id="modal-popup">
+  <div class="modal-box">
+    <h2 id="modal-title">मिशन पूरा!</h2>
+    <p id="modal-desc">इनाम मिला: ₹500</p>
+    <div class="btn focused" onclick="closeModal()" style="justify-content:center;">OK (आगे बढ़ें)</div>
+  </div>
+</div>
+
+<script>
+// Safe Storage Wrapper (Never crashes inside Android WebView)
+let GameData = {
+  cash: 1000,
+  unlockedMission: 1,
+  currentMission: 1,
+  equippedWeapon: 'pistol',
+  ownedWeapons: ['pistol'],
+  equippedSkin: 'neon_brawler',
+  ownedSkins: ['neon_brawler']
+};
+
+try {
+  const saved = localStorage.getItem('vice_commute_save_v2');
+  if (saved) GameData = Object.assign(GameData, JSON.parse(saved));
+} catch (e) {}
+
+function saveGame() {
+  try { localStorage.setItem('vice_commute_save_v2', JSON.stringify(GameData)); } catch (e) {}
+  updateCashUI();
+}
+
+// Sound Effects
+let audioCtx = null;
+function playSfx(type) {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!audioCtx) audioCtx = new AudioContextClass();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    const now = audioCtx.currentTime;
+    if (type === 'shoot') {
+      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+      gain.gain.setValueAtTime(0.25, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+      osc.start(now); osc.stop(now + 0.1);
+    } else if (type === 'coin') {
+      osc.type = 'sine'; osc.frequency.setValueAtTime(650, now); osc.frequency.setValueAtTime(980, now + 0.08);
+      gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+      osc.start(now); osc.stop(now + 0.2);
+    } else if (type === 'explosion') {
+      osc.type = 'square'; osc.frequency.setValueAtTime(100, now); osc.frequency.exponentialRampToValueAtTime(25, now + 0.3);
+      gain.gain.setValueAtTime(0.4, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.3);
+      osc.start(now); osc.stop(now + 0.3);
+    } else {
+      osc.type = 'triangle'; osc.frequency.setValueAtTime(500, now);
+      gain.gain.setValueAtTime(0.15, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+      osc.start(now); osc.stop(now + 0.05);
+    }
+  } catch (e) {}
+}
+
+const WEAPONS = [
+  { id: 'pistol', name: '9mm पिस्तौल', price: 0, dmg: 30, rate: 260, bullets: 1, spread: 0.05, desc: 'भरोसेमंद शुरुआती गन' },
+  { id: 'uzi', name: 'माइक्रो SMG', price: 1000, dmg: 20, rate: 95, bullets: 1, spread: 0.16, desc: 'तेज रफ्तार फायरिंग' },
+  { id: 'shotgun', name: 'पंप शॉटगन', price: 2200, dmg: 25, rate: 500, bullets: 5, spread: 0.32, desc: 'एक साथ 5 गोलियां' },
+  { id: 'rifle', name: 'असॉल्ट राइफल AK', price: 4000, dmg: 45, rate: 130, bullets: 1, spread: 0.07, desc: 'भारी डैमेज राइफल' },
+  { id: 'plasma', name: 'GTA-6 नियोन तोप', price: 7500, dmg: 100, rate: 280, bullets: 2, spread: 0.08, desc: 'एक शॉट में दुश्मन खत्म' }
+];
+
+const SKINS = [
+  { id: 'neon_brawler', name: 'वाइस रनर', price: 0, color: '#00f0ff', hat: '#ff2a85', desc: 'मियामी नियोन जैकेट' },
+  { id: 'shadow_don', name: 'माफिया डॉन', price: 800, color: '#222222', hat: '#ffcc00', desc: 'गोल्ड चेन और ब्लैक सूट' },
+  { id: 'desert_king', name: 'राजस्थानी कमांडो', price: 1500, color: '#d4882a', hat: '#ff3300', desc: 'केसरिया साफा और आर्मर' },
+  { id: 'cyber_knight', name: 'साइबर नाइट', price: 3000, color: '#9900ff', hat: '#00ff88', desc: 'ग्लोइंग कवच' },
+  { id: 'gold_vip', name: 'गोल्डन बॉस (+50 HP)', price: 5000, color: '#ffd700', hat: '#ffffff', desc: '24 कैरेट गोल्ड + एक्स्ट्रा हेल्थ' }
+];
+
+const MISSION_TYPES = [
+  { type: 'commute', title: 'टाइम कम्यूट डिलीवरी', desc: 'Does Not Commute स्टाइल: ट्रैफिक से बचते हुए हरे चेकपॉइंट तक पहुंचें!' },
+  { type: 'gang_wipeout', title: 'गैंगस्टर सफाया', desc: 'लाल रंग के सभी दुश्मनों को खत्म करें।' },
+  { type: 'heist_escape', title: 'बैंक डकैती और एस्केप', desc: 'स्पोर्ट्स कार भगाते हुए सेफ जोन तक पहुंचें!' },
+  { type: 'car_hijack', title: 'सुपरकार डिलीवरी', desc: 'शहर के पार जाकर कार को चेकपॉइंट पर पहुंचाएं।' },
+  { type: 'boss_hunt', title: 'सिंडिकेट बॉस फाइट', desc: 'खतरनाक बॉस और उसके गुर्गों को हराएं।' }
+];
+
+const MISSIONS = [];
+for (let i = 1; i <= 50; i++) {
+  let t = MISSION_TYPES[(i - 1) % MISSION_TYPES.length];
+  MISSIONS.push({
+    id: i, type: t.type, title: `M-${i}: ${t.title}`, desc: t.desc,
+    reward: 500 + (i * 250), timeLimit: 75,
+    enemiesCount: 3 + Math.min(15, Math.floor(i * 1.2)),
+    commuteGhostCount: Math.min(7, 2 + Math.floor(i / 5))
+  });
+}
+
+// UI & Screen Navigation
+let currentScreen = 'home-screen';
+let focusIndex = 0;
+
+function updateCashUI() {
+  document.getElementById('menu-cash').innerText = '₹ ' + GameData.cash;
+  document.getElementById('shop-cash').innerText = '₹ ' + GameData.cash;
+  document.getElementById('skin-cash').innerText = '₹ ' + GameData.cash;
+  document.getElementById('cur-mission-badge').innerText = 'M-' + GameData.currentMission;
+}
+
+function addFreeBonusCash() {
+  playSfx('coin');
+  GameData.cash += 500;
+  saveGame();
+}
+
+function openScreen(screenId) {
+  playSfx('click');
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  if (screenId === 'gameplay') {
+    document.getElementById('hud').style.display = 'flex';
+    document.getElementById('touch-controls').style.display = 'flex';
+  } else {
+    const scr = document.getElementById(screenId);
+    if (scr) scr.classList.add('active');
+    document.getElementById('hud').style.display = 'none';
+    document.getElementById('touch-controls').style.display = 'none';
+  }
+  currentScreen = screenId;
+  focusIndex = 0;
+  updateCashUI();
+  updateFocusVisuals();
+}
+
+function openMissionsMenu() {
+  const container = document.getElementById('mission-list');
+  container.innerHTML = '';
+  MISSIONS.forEach(m => {
+    const locked = m.id > GameData.unlockedMission;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<div><h3>${locked ? '🔒 ' : '⭐ '}${m.title}</h3><p>${m.desc}</p></div><div class="price-tag">इनाम: ₹${m.reward}</div>`;
+    card.onclick = function() {
+      if (!locked) {
+        GameData.currentMission = m.id;
+        saveGame();
+        startMission(m.id);
+      } else {
+        showModal('मिशन लॉक है!', 'पहले पिछले मिशन पूरे करें।');
+      }
+    };
+    container.appendChild(card);
+  });
+  openScreen('mission-screen');
+}
+
+function openShopMenu() {
+  const container = document.getElementById('shop-list');
+  container.innerHTML = '';
+  WEAPONS.forEach(w => {
+    const owned = GameData.ownedWeapons.includes(w.id);
+    const equipped = GameData.equippedWeapon === w.id;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<div><h3>🔫 ${w.name}</h3><p>${w.desc} (DMG: ${w.dmg})</p></div><div class="price-tag">${equipped ? '✔ लैस (Equipped)' : (owned ? 'चुनें (Use)' : 'खरीदें: ₹' + w.price)}</div>`;
+    card.onclick = function() {
+      if (owned) {
+        GameData.equippedWeapon = w.id;
+        saveGame(); openShopMenu();
+      } else if (GameData.cash >= w.price) {
+        GameData.cash -= w.price;
+        GameData.ownedWeapons.push(w.id);
+        GameData.equippedWeapon = w.id;
+        playSfx('coin'); saveGame(); openShopMenu();
+      } else {
+        showModal('पैसे कम हैं!', 'होम स्क्रीन से फ्री बोनस लें या मिशन खेलें।');
+      }
+    };
+    container.appendChild(card);
+  });
+  openScreen('shop-screen');
+}
+
+function openSkinsMenu() {
+  const container = document.getElementById('skin-list');
+  container.innerHTML = '';
+  SKINS.forEach(s => {
+    const owned = GameData.ownedSkins.includes(s.id);
+    const equipped = GameData.equippedSkin === s.id;
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<div><h3 style="color:${s.color}">👕 ${s.name}</h3><p>${s.desc}</p></div><div class="price-tag">${equipped ? '✔ पहना हुआ' : (owned ? 'पहनें' : 'खरीदें: ₹' + s.price)}</div>`;
+    card.onclick = function() {
+      if (owned) {
+        GameData.equippedSkin = s.id;
+        saveGame(); openSkinsMenu();
+      } else if (GameData.cash >= s.price) {
+        GameData.cash -= s.price;
+        GameData.ownedSkins.push(s.id);
+        GameData.equippedSkin = s.id;
+        playSfx('coin'); saveGame(); openSkinsMenu();
+      } else {
+        showModal('पैसे कम हैं!', 'और कैश कमाएं या बोनस लें।');
+      }
+    };
+    container.appendChild(card);
+  });
+  openScreen('skin-screen');
+}
+
+function showModal(title, desc) {
+  document.getElementById('modal-title').innerText = title;
+  document.getElementById('modal-desc').innerText = desc;
+  document.getElementById('modal-popup').style.display = 'flex';
+}
+
+function closeModal() {
+  playSfx('click');
+  document.getElementById('modal-popup').style.display = 'none';
+}
+
+function getFocusableElements() {
+  if (document.getElementById('modal-popup').style.display === 'flex') {
+    return [document.querySelector('#modal-popup .btn')];
+  }
+  const activeScr = document.getElementById(currentScreen);
+  if (!activeScr) return [];
+  return Array.from(activeScr.querySelectorAll('.btn, .card'));
+}
+
+function updateFocusVisuals() {
+  const els = getFocusableElements();
+  els.forEach((el, idx) => {
+    if (idx === focusIndex) {
+      el.classList.add('focused');
+      try { el.scrollIntoView({ block: 'nearest' }); } catch(e) {}
+    } else {
+      el.classList.remove('focused');
+    }
+  });
+}
+
+// ================= GAME ENGINE =================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+window.addEventListener('resize', () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; });
+
+const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+
+let gameState = {
+  inGame: false, mission: MISSIONS[0], timer: 60, wanted: 0,
+  camera: { x: 0, y: 0 },
+  player: { x: 200, y: 200, angle: 0, hp: 100, maxHp: 100, inCar: null, speed: 4.8 },
+  cars: [], enemies: [], bullets: [], particles: [], loot: [], buildings: [],
+  targetZone: { x: 1600, y: 1600, r: 85 },
+  currentRecording: [], ghostCars: []
+};
+
+function generateCity() {
+  gameState.buildings = [];
+  for (let bx = 240; bx < 2000; bx += 360) {
+    for (let by = 240; by < 2000; by += 360) {
+      if (bx === 240 && by === 240) continue;
+      const colors = ['#1b1e38', '#281d3d', '#16303d'];
+      const neons = ['#ff2a85', '#00f0ff', '#ff9000'];
+      const idx = (bx + by) % 3;
+      gameState.buildings.push({ x: bx, y: by, w: 210, h: 210, color: colors[idx], neon: neons[idx] });
+    }
+  }
+}
+
+function startMission(missionId) {
+  const m = MISSIONS[missionId - 1] || MISSIONS[0];
+  gameState.mission = m;
+  gameState.inGame = true;
+  gameState.timer = m.timeLimit;
+  gameState.wanted = (m.type === 'heist_escape') ? 3 : 0;
+
+  generateCity();
+  const bonusHp = GameData.equippedSkin === 'gold_vip' ? 50 : 0;
+  gameState.player = { x: 150, y: 150, angle: 0, hp: 100 + bonusHp, maxHp: 100 + bonusHp, inCar: null, speed: 4.8 };
+  gameState.bullets = []; gameState.particles = []; gameState.loot = []; gameState.currentRecording = [];
+  gameState.targetZone = { x: 1650, y: 1650, r: 90 };
+
+  gameState.cars = [
+    { x: 210, y: 150, angle: 0, speed: 0, maxSpeed: 9.2, color: '#ff2a85', name: 'Vice GT' },
+    { x: 900, y: 500, angle: 1.57, speed: 0, maxSpeed: 8.5, color: '#00f0ff', name: 'Neon Turbo' },
+    { x: 1300, y: 1150, angle: 0, speed: 0, maxSpeed:
